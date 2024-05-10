@@ -107,7 +107,10 @@ def init_dl_program(
     
     devices = []
     for t in reversed(device_name):
+        t="cpu"
+        #t="mps"
         t_device = torch.device(t)
+        print(t_device)
         devices.append(t_device)
         if t_device.type == 'cuda':
             assert torch.cuda.is_available()

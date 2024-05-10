@@ -15,14 +15,17 @@ class TS2Vec:
         input_dims,
         output_dims=320,
         hidden_dims=64,
+        length_dim=10,
         depth=10,
-        device='cuda',
+        # device='cuda',
+        device='cpu',
         lr=0.001,
         batch_size=16,
         max_train_length=None,
         temporal_unit=0,
         after_iter_callback=None,
-        after_epoch_callback=None
+        after_epoch_callback=None,
+        input_total=1
     ):
         ''' Initialize a TS2Vec model.
         
@@ -47,7 +50,7 @@ class TS2Vec:
         self.max_train_length = max_train_length
         self.temporal_unit = temporal_unit
         
-        self._net = TSEncoder(input_dims=input_dims, output_dims=output_dims, hidden_dims=hidden_dims, depth=depth).to(self.device)
+        self._net = TSEncoder(input_dims=input_dims, output_dims=output_dims, hidden_dims=hidden_dims, length_dim=length_dim,depth=depth,input_total=input_total).to(self.device)
         self.net = torch.optim.swa_utils.AveragedModel(self._net)
         self.net.update_parameters(self._net)
         
@@ -57,7 +60,7 @@ class TS2Vec:
         self.n_epochs = 0
         self.n_iters = 0
     
-    def fit(self, train_data, n_epochs=None, n_iters=None, verbose=False):
+    def fit(self, train_data, n_epochs=None, n_iters=None, verbose=False,save_model="test.pth"):
         ''' Training the TS2Vec model.
         
         Args:
@@ -72,7 +75,8 @@ class TS2Vec:
         assert train_data.ndim == 3
         
         if n_iters is None and n_epochs is None:
-            n_iters = 200 if train_data.size <= 100000 else 600  # default param for n_iters
+            #n_iters 200to400
+            n_iters = 400 if train_data.size <= 100000 else 600  # default param for n_iters
         
         if self.max_train_length is not None:
             sections = train_data.shape[1] // self.max_train_length
@@ -91,7 +95,9 @@ class TS2Vec:
         optimizer = torch.optim.AdamW(self._net.parameters(), lr=self.lr)
         
         loss_log = []
-        
+        best_loss = float('inf')
+        #スライディングウィンドウなしの時はslide_num=1にしてください
+        slide_num=5
         while True:
             if n_epochs is not None and self.n_epochs >= n_epochs:
                 break
@@ -110,28 +116,57 @@ class TS2Vec:
                     window_offset = np.random.randint(x.size(1) - self.max_train_length + 1)
                     x = x[:, window_offset : window_offset + self.max_train_length]
                 x = x.to(self.device)
+                # print("x.shape")
+                # print(x.shape)
                 
                 ts_l = x.size(1)
-                crop_l = np.random.randint(low=2 ** (self.temporal_unit + 1), high=ts_l+1)
+                
+                if slide_num==1:
+                    crop_l = np.random.randint(low=2 ** (self.temporal_unit + 1), high=ts_l+1)
+                else:
+                    crop_l = np.random.randint(low=slide_num, high=ts_l+1)
+                #print(crop_l)
                 crop_left = np.random.randint(ts_l - crop_l + 1)
                 crop_right = crop_left + crop_l
                 crop_eleft = np.random.randint(crop_left + 1)
                 crop_eright = np.random.randint(low=crop_right, high=ts_l + 1)
+
                 crop_offset = np.random.randint(low=-crop_eleft, high=ts_l - crop_eright + 1, size=x.size(0))
                 
                 optimizer.zero_grad()
-                
-                out1 = self._net(take_per_row(x, crop_offset + crop_eleft, crop_right - crop_eleft))
-                out1 = out1[:, -crop_l:]
-                
-                out2 = self._net(take_per_row(x, crop_offset + crop_left, crop_eright - crop_left))
-                out2 = out2[:, :crop_l]
+                #forwardの処理
+                #take_per_rowは行列の一部を取り出す関数 各行目でcrop_offset+crop_eleftからcrop_right - crop_eleft個のデータを取り出す
+                # print(crop_offset + crop_eleft)
+                # print(crop_right - crop_eleft)
+                # print(crop_offset + crop_left)
+                # print(crop_eright - crop_left)
+                out1,loss_k1 = self._net(take_per_row(x, crop_offset + crop_eleft, crop_right - crop_eleft))
+                # print("crop_l")
+                # print(crop_l)
+                # print(out1.shape)
+                out1 = out1[:, -crop_l+(slide_num-1):]
+                # print(out1.shape)
+                # print("")
+
+                out2 ,loss_k2= self._net(take_per_row(x, crop_offset + crop_left, crop_eright - crop_left))
+                #print(crop_l)
+                # print(out2.shape)
+                out2 = out2[:, :crop_l-(slide_num-1)]
+                # print(out2.shape)
                 
                 loss = hierarchical_contrastive_loss(
                     out1,
                     out2,
                     temporal_unit=self.temporal_unit
                 )
+                print("loss")
+                print(loss)
+                
+                print("loss_k1,loss_k2")
+                print(loss_k1,loss_k2)
+                loss += loss_k1*1.2+loss_k2*1.2
+                #loss += loss_k1*0.1+loss_k2*0.1
+                
                 
                 loss.backward()
                 optimizer.step()
@@ -149,7 +184,13 @@ class TS2Vec:
                 break
             
             cum_loss /= n_epoch_iters
-            loss_log.append(cum_loss)
+            if cum_loss < best_loss:
+                best_loss = cum_loss
+                print(f"Best model updated: loss={cum_loss}")
+                loss_log.append(cum_loss)
+                torch.save(self.net.state_dict(), save_model)
+            
+                #torch.save(model.state_dict(), 'best_model.pth')
             if verbose:
                 print(f"Epoch #{self.n_epochs}: loss={cum_loss}")
             self.n_epochs += 1
@@ -160,7 +201,7 @@ class TS2Vec:
         return loss_log
     
     def _eval_with_pooling(self, x, mask=None, slicing=None, encoding_window=None):
-        out = self.net(x.to(self.device, non_blocking=True), mask)
+        out ,_loss= self.net(x.to(self.device, non_blocking=True), mask)
         if encoding_window == 'full_series':
             if slicing is not None:
                 out = out[:, slicing]
@@ -229,7 +270,7 @@ class TS2Vec:
         
         dataset = TensorDataset(torch.from_numpy(data).to(torch.float))
         loader = DataLoader(dataset, batch_size=batch_size)
-        
+        print("a")
         with torch.no_grad():
             output = []
             for batch in loader:

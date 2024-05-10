@@ -8,6 +8,7 @@ import pickle
 from utils import pkl_load, pad_nan_to_target
 from scipy.io.arff import loadarff
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+import matplotlib.pyplot as plt
 
 def load_UCR(dataset):
     train_file = os.path.join('datasets/UCR', dataset, dataset + "_TRAIN.tsv")
@@ -130,24 +131,39 @@ def _get_time_features(dt):
         dt.day.to_numpy(),
         dt.dayofyear.to_numpy(),
         dt.month.to_numpy(),
-        dt.weekofyear.to_numpy(),
+        # dt.weekofyear.to_numpy(),
+        dt.isocalendar().week.to_numpy(),
     ], axis=1).astype(np.float)
 
 
-def load_forecast_csv(name, univar=False):
+def load_forecast_csv(name, univar=True):
     data = pd.read_csv(f'datasets/{name}.csv', index_col='date', parse_dates=True)
-    dt_embed = _get_time_features(data.index)
-    n_covariate_cols = dt_embed.shape[-1]
+    print("data")
+    print(data.shape)
+    print(data.index)
+    # dt_embed = _get_time_features(data.index)
+    # print("dt_embed")
+    # print(dt_embed.shape)
+    # print(dt_embed)
+    # n_covariate_cols = dt_embed.shape[-1]
+    # print(n_covariate_cols)
+    data1=data.copy()
     
     if univar:
         if name in ('ETTh1', 'ETTh2', 'ETTm1', 'ETTm2'):
             data = data[['OT']]
+            print("OT")
+            data1=data.copy()
+            #plt.plot(data)
+
         elif name == 'electricity':
             data = data[['MT_001']]
         else:
             data = data.iloc[:, -1:]
-        
+    print(data.shape)   
     data = data.to_numpy()
+    print("data")
+    print(data.shape)
     if name == 'ETTh1' or name == 'ETTh2':
         train_slice = slice(None, 12*30*24)
         valid_slice = slice(12*30*24, 16*30*24)
@@ -160,6 +176,9 @@ def load_forecast_csv(name, univar=False):
         train_slice = slice(None, int(0.6 * len(data)))
         valid_slice = slice(int(0.6 * len(data)), int(0.8 * len(data)))
         test_slice = slice(int(0.8 * len(data)), None)
+    print(train_slice)
+    print(valid_slice)
+    print(test_slice)
     
     scaler = StandardScaler().fit(data[train_slice])
     data = scaler.transform(data)
@@ -167,18 +186,24 @@ def load_forecast_csv(name, univar=False):
         data = np.expand_dims(data.T, -1)  # Each variable is an instance rather than a feature
     else:
         data = np.expand_dims(data, 0)
-    
-    if n_covariate_cols > 0:
-        dt_scaler = StandardScaler().fit(dt_embed[train_slice])
-        dt_embed = np.expand_dims(dt_scaler.transform(dt_embed), 0)
-        data = np.concatenate([np.repeat(dt_embed, data.shape[0], axis=0), data], axis=-1)
-    
+    print(data.shape)
+    # if n_covariate_cols > 0:
+    #     dt_scaler = StandardScaler().fit(dt_embed[train_slice])
+    #     print(dt_scaler)
+    #     print(dt_embed.shape) 
+    #     dt_embed = np.expand_dims(dt_scaler.transform(dt_embed), 0)
+    #     print(dt_embed.shape) 
+    #     print(data.shape)
+    #     print(data.shape[0])
+    #     data = np.concatenate([np.repeat(dt_embed, data.shape[0], axis=0), data], axis=-1)
+    #     print(data.shape)
     if name in ('ETTh1', 'ETTh2', 'electricity'):
         pred_lens = [24, 48, 168, 336, 720]
     else:
         pred_lens = [24, 48, 96, 288, 672]
-        
-    return data, train_slice, valid_slice, test_slice, scaler, pred_lens, n_covariate_cols
+
+    return data, train_slice, valid_slice, test_slice, scaler, pred_lens, data1
+    #return data, train_slice, valid_slice, test_slice, scaler, pred_lens, n_covariate_cols,data1
 
 
 def load_anomaly(name):
