@@ -5,22 +5,40 @@ import torch.nn.functional as F
 def hierarchical_contrastive_loss(z1, z2, alpha=0.5, temporal_unit=0):
     loss = torch.tensor(0., device=z1.device)
     d = 0
-    while z1.size(1) > 1:
+    while z1.size(1) > 1 and z2.size(1) > 1:
         if alpha != 0:
             loss += alpha * instance_contrastive_loss(z1, z2)
         if d >= temporal_unit:
             if 1 - alpha != 0:
                 loss += (1 - alpha) * temporal_contrastive_loss(z1, z2)
+        #追加
+        if d==0:
+            a=0.01
+            loss += a*diff_X(z1)+a*diff_X(z2)
+        # else:
+        #     a=0.01*(0.1**d)
+        #     loss += a*diff_X(z1)+a*diff_X(z2)
         d += 1
         z1 = F.max_pool1d(z1.transpose(1, 2), kernel_size=2).transpose(1, 2)
         z2 = F.max_pool1d(z2.transpose(1, 2), kernel_size=2).transpose(1, 2)
-    if z1.size(1) == 1:
+    if z1.size(1) == 1 or z2.size(1) == 1:
         if alpha != 0:
             loss += alpha * instance_contrastive_loss(z1, z2)
+        #追加
+        if d==0:
+            a=0.01
+            loss += a*diff_X(z1)+a*diff_X(z2)
+        # else:
+        #     a=0.01*(0.1**d)
+        #     loss += a*diff_X(z1)+a*diff_X(z2)
         d += 1
     return loss / d
 
 def instance_contrastive_loss(z1, z2):
+    # print("z1")
+    # print(z1.shape)
+    # print("z2")
+    # print(z2.shape)
     B, T = z1.size(0), z1.size(1)
     if B == 1:
         return z1.new_tensor(0.)
@@ -48,3 +66,15 @@ def temporal_contrastive_loss(z1, z2):
     t = torch.arange(T, device=z1.device)
     loss = (logits[:, t, T + t - 1].mean() + logits[:, T + t, t].mean()) / 2
     return loss
+
+#追加
+def diff_X(X):
+    # スライシングを使用して隣接する要素間の差を計算
+    diff = X[:, 1:, :] - X[:, :-1, :]
+
+    # 差の二乗を計算
+    squared_diff = diff ** 2
+
+    # すべての差の二乗を合計
+    sum_of_squared_diff = torch.sum(squared_diff)
+    return sum_of_squared_diff
