@@ -97,7 +97,7 @@ class TS2Vec:
         loss_log = []
         best_loss = float('inf')
         #スライディングウィンドウなしの時はslide_num=1にしてください
-        slide_num=5
+        slide_num=1
         while True:
             if n_epochs is not None and self.n_epochs >= n_epochs:
                 break
@@ -141,30 +141,56 @@ class TS2Vec:
                 # print(crop_offset + crop_left)
                 # print(crop_eright - crop_left)
                 out1,loss_k1 = self._net(take_per_row(x, crop_offset + crop_eleft, crop_right - crop_eleft))
+                #out11,out12,out13,loss_k_11,loss_k_12,loss_k_13=self._net(take_per_row(x, crop_offset + crop_eleft, crop_right - crop_eleft))
                 # print("crop_l")
                 # print(crop_l)
                 # print(out1.shape)
                 out1 = out1[:, -crop_l+(slide_num-1):]
+
+                # out11 = out11[:, -crop_l+(3-1):]
+                # out12 = out12[:, -crop_l+(5-1):]
+                # out13 = out13[:, -crop_l+(7-1):]
                 # print(out1.shape)
                 # print("")
-
-                out2 ,loss_k2= self._net(take_per_row(x, crop_offset + crop_left, crop_eright - crop_left))
+                out2,loss_k2= self._net(take_per_row(x, crop_offset + crop_left, crop_eright - crop_left))
+                #out21,out22,out23,loss_k_21,loss_k_22,loss_k_23= self._net(take_per_row(x, crop_offset + crop_left, crop_eright - crop_left))
                 #print(crop_l)
                 # print(out2.shape)
                 out2 = out2[:, :crop_l-(slide_num-1)]
+
+                # out21 = out21[:, :crop_l-(3-1)]
+                # out22 = out22[:, :crop_l-(5-1)]
+                # out23 = out23[:, :crop_l-(7-1)]
                 # print(out2.shape)
                 
-                loss = hierarchical_contrastive_loss(
+                loss= hierarchical_contrastive_loss(
                     out1,
                     out2,
                     temporal_unit=self.temporal_unit
                 )
-                print("loss")
-                print(loss)
+
+                # loss1 = hierarchical_contrastive_loss(
+                #     out11,
+                #     out21,
+                #     temporal_unit=self.temporal_unit
+                # )
+                # loss2 = hierarchical_contrastive_loss(
+                #     out12,
+                #     out22,
+                #     temporal_unit=self.temporal_unit
+                # )
+                # loss3 = hierarchical_contrastive_loss(
+                #     out13,
+                #     out23,
+                #     temporal_unit=self.temporal_unit
+                # )
+                # print("loss")
+                # print(loss)
                 
                 print("loss_k1,loss_k2")
                 print(loss_k1,loss_k2)
                 loss += loss_k1*1.2+loss_k2*1.2
+                #loss=loss1+loss2+loss3
                 #loss += loss_k1*0.1+loss_k2*0.1
                 
                 

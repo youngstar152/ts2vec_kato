@@ -24,7 +24,9 @@ def generate_continuous_mask(B, T, n=5, l=0.1):
 def generate_binomial_mask(B, T, p=0.5):
     return torch.from_numpy(np.random.binomial(1, p, size=(B, T))).to(torch.bool)
 
-window_size = 5
+global window_size
+window_size = 1
+
 #ここでスライディングウィンドウありかどうか決定する！
 slide=True
 #slide=False
@@ -36,36 +38,42 @@ class TSEncoder(nn.Module):
         self.output_dims = output_dims
         self.hidden_dims = hidden_dims
         self.mask_mode = mask_mode
-        # print(input_total)
-        # print(input_dims*input_total)
-
+        print(input_total)
+        print(input_dims*input_total)
 
         self.input_regime=nn.Linear(window_size,1)
+        self.input_regime_3=nn.Linear(3,1)
+        self.input_regime_5=nn.Linear(5,1)
+        self.input_regime_7=nn.Linear(7,1)
+        # self.input_regime=nn.Linear(window_size,10)
+        # self.input_regime2=nn.Linear(10,1)
         #self.input_fc = nn.Linear(input_dims*input_total, hidden_dims)
 
         self.input_fc = nn.Linear(input_dims, hidden_dims)
+
         self.feature_extractor = DilatedConvEncoder(
             hidden_dims,
             [hidden_dims] * depth + [output_dims],
             kernel_size=3
         )
+        #self.attention = nn.MultiheadAttention(embed_dim=output_dims, num_heads=4)
         self.repr_dropout = nn.Dropout(p=0.1)
         
-    def forward(self, x, mask=None):  # x: B x T x input_dims
-        # print("a")
-        # print(x.shape)
-
+    def kaiso(self, num,x):
         nan_mask = ~x.isnan().any(axis=-1)
         x[~nan_mask] = 0
-
-        # print("b")
-        # print(x.shape)
-        #x = self.input_regime(x.transpose(1, 2))
-        # print(x.shape)
         
         #ここがスライディングウィンドウ
         # 分割したデータを格納するリスト
         split_data = []
+        if num==1:
+            window_size=3
+        elif num==2:   
+            window_size=5
+        elif num==3:
+            window_size=7
+        else:
+            window_size=1
         if slide:
         # スライディングウィンドウで2次元目を分割
             for i in range(x.shape[1] - window_size + 1):
@@ -73,7 +81,16 @@ class TSEncoder(nn.Module):
                 x_window=split.transpose(1, 2)
                 # print("test")
                 # print(x_window.shape)
-                y=self.input_regime(x_window)
+                if num==1:
+                    y=self.input_regime_3(x_window)
+                elif num==2:
+                    y=self.input_regime_5(x_window)
+                elif num==3:    
+                    y=self.input_regime_7(x_window)
+                else:
+                    y=self.input_regime(x_window)
+                # y=F.relu(self.input_regime(x_window))
+                # y=self.input_regime2(y)
                 y=y.transpose(1, 2)
                 split_data.append(y)
 
@@ -88,6 +105,7 @@ class TSEncoder(nn.Module):
         # print("c")
         # print(x.shape)
         # generate & apply mask
+        mask=None
         if mask is None:
             if self.training:
                 mask = self.mask_mode
@@ -113,10 +131,11 @@ class TSEncoder(nn.Module):
         # conv encoder
         x = x.transpose(1, 2)  # B x Ch x T
         x = self.repr_dropout(self.feature_extractor(x))  # B x Co x T
+        #x, _ = self.attention(x, x, x)
         x = x.transpose(1, 2)  # B x T x Co
         # print(x)
 
-
+        
         batch_size = x.shape[2]
         train_dataset_size = x.shape[1]
         k_cluster = 6
@@ -150,49 +169,17 @@ class TSEncoder(nn.Module):
         global_step = torch.tensor(0, requires_grad=False)
         lbdkm = 0.05
         loss_k = loss_km * lbdkm
-
-        # F_copy = tf.Variable(initial_value=tf.initializers.orthogonal(gain=1.0)(shape=[batch_size, k_cluster], dtype=tf.float32),
-        #        trainable=False)
-        # print("F_copy")
-        # print(F_copy.shape)
-        # print("HTH")
-        # print(HTH.shape)    
-        # print("tf.transpose(F_copy)")
-        # print(tf.transpose(F_copy).shape)
-        # print("tf.matmul(tf.transpose(F_copy),HTH)")
-        # print(tf.matmul(tf.transpose(F_copy),HTH).shape)
-
-        #FTHTHF = tf.matmul(tf.matmul(tf.transpose(F_copy),HTH),F_copy)
-        #loss_km = tf.compat.v1.trace(HTH) - tf.compat.v1.trace(FTHTHF)
-        #Gloal_step = tf.Variable(tf.constant(0))
-        #lbdkm=10
-        #loss_km=loss_km.cpu().numpy().copy()
-        #loss_k = loss_km * lbdkm
-
-        # print("ok")
-        
-        #update_op
-        #tf.compat.v1.disable_eager_execution()
-        #F = tf.compat.v1.placeholder(tf.float32,shape = [batch_size,k_cluster])
-        #F_update = tf.compat.v1.assign(F_copy,F)
-        
-        
-        # print("ok2")
-        #tf.compat.v1.enable_eager_execution()
-        #lbdkm = tf.compat.v1.train.exponential_decay( lambda_kmeans, Gloal_step, decay_steps=train_dataset_size//batch_size, decay_rate=0.95, staircase=False)
-        
-        #if config.IsD == True:
-        
-        
-        # print("loss_km")
-        # print(loss_km)
-
-        #lbdkm=lbdkm.numpy().copy()
-        # print("lbdkm")
-        # print(lbdkm)
-        
-        # print("ok3")
-        # print(loss_k)
         
         return x,loss_k
+
+    def forward(self, x, mask=None):  # x: B x T x input_dims
+        # print("a")
+        # print(x.shape)
+        x1,loss_k_1 = self.kaiso(5,x)
+        return x1,loss_k_1
+        # x1,loss_k_1 = self.kaiso(1,x)
+        # x2,loss_k_2 = self.kaiso(2,x)
+        # x3,loss_k_3 = self.kaiso(3,x)
+        # return x1,x2,x3,loss_k_1,loss_k_2,loss_k_3
+        
         
