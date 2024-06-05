@@ -116,8 +116,8 @@ class TS2Vec:
                     window_offset = np.random.randint(x.size(1) - self.max_train_length + 1)
                     x = x[:, window_offset : window_offset + self.max_train_length]
                 x = x.to(self.device)
-                # print("x.shape")
-                # print(x.shape)
+                print("x.shape")
+                print(x.shape)
                 
                 ts_l = x.size(1)
                 
